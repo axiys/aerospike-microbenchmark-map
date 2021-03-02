@@ -57,8 +57,6 @@ public class Main {
             Bin init_bin = new Bin("mapbin1", init_map);
             client.put(null, key, init_bin);
 
-            MapPolicy mapPolicy = new MapPolicy();
-
             int n = 1000;
             while (n-- > 0) {
 
