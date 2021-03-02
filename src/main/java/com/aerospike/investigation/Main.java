@@ -2,25 +2,29 @@ package com.aerospike.investigation;
 
 import com.aerospike.client.*;
 import com.aerospike.client.Record;
-import com.aerospike.client.cdt.MapPolicy;
 import com.aerospike.client.policy.*;
 
 import java.time.LocalDateTime;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BinaryOperator;
+import java.util.stream.Stream;
 
 public class Main {
+    private static int NUMBER_OF_THREADS = 5;
+    private static int NUMBER_OF_OPERATIONS_PER_THREAD = 1000;
+    private static String TERMINATOR = "@#$%^&";
+
     private static Random random = new Random(LocalDateTime.now().getNano() * LocalDateTime.now().getSecond());
 
     public static void main(String[] args) {
 
+        long startTime = System.currentTimeMillis();
+
         ExecutorService es = Executors.newCachedThreadPool();
-        int n = 5;
+        int n = NUMBER_OF_THREADS;
         while (n-- > 0) {
             es.execute(Main::runWorker);
         }
@@ -31,7 +35,10 @@ public class Main {
             e.printStackTrace();
         }
 
-        System.out.println("Finished");
+        long endTime = System.currentTimeMillis();
+        if (endTime > startTime + 1000) {
+            System.out.println("ops/sec: " + (NUMBER_OF_THREADS * NUMBER_OF_OPERATIONS_PER_THREAD) / ((endTime - startTime) / 1000));
+        }
     }
 
     private static boolean runWorker() {
@@ -57,7 +64,7 @@ public class Main {
             Bin init_bin = new Bin("mapbin1", init_map);
             client.put(null, key, init_bin);
 
-            int n = 1000;
+            int n = NUMBER_OF_OPERATIONS_PER_THREAD;
             while (n-- > 0) {
 
                 // Fetch
@@ -65,51 +72,42 @@ public class Main {
                 Map<String, String> map_to_update = (Map<String, String>) record_to_update.getMap("mapbin1");
                 String map_key_name = "key" + random.nextInt(100);
 
-                // Randomly select operation
-                switch (random.nextInt(2)) {
-                    case 0:
-                        String expected_value = randomBytes();
+                String expected_value = randomBytes();
+                String expected_value_base64 = base64_encode(expected_value) + TERMINATOR;
 
-                        // Update a key-value in map
-                        map_to_update.put(map_key_name, base64_encode(expected_value));
-                        Bin bin_to_update = new Bin("mapbin1", map_to_update);
-                        client.put(null, key, bin_to_update);
+                // Update a key-value in map
+                map_to_update.put(map_key_name, expected_value_base64);
+                Bin bin_to_update = new Bin("mapbin1", map_to_update);
+                client.put(null, key, bin_to_update);
 
-                        // Verify value is set correctly
-                        Record record_to_check = client.get(null, key, "mapbin1");
-                        Map<?, ?> map_to_check = (Map<?, ?>) record_to_check.getValue("mapbin1");
-                        String actual_value_base64 = (String) map_to_check.get(map_key_name);
+                // Verify value is set correctly
+                Record record_to_check = client.get(null, key, "mapbin1");
+                Map<?, ?> map_to_check = (Map<?, ?>) record_to_check.getValue("mapbin1");
 
-                        // Is there a value?
-                        if (actual_value_base64 == null) {
-                            System.out.println("\nNull value fetched, expected a value of length: " + expected_value.length() + " GENERATION INFO original:=" + record_to_update.generation + " updated:=" + record_to_check.generation);
-                            return false;
-
-                        }
-
-                        System.out.print(".");
-
-                        break;
-
-                    case 1:
-
-                        // Remove
-                        map_to_update.remove(map_key_name);
-                        Bin bin_to_update_with_deleted_item = new Bin("mapbin1", map_to_update);
-                        client.put(null, key, bin_to_update_with_deleted_item);
-
-                        System.out.print("_");
-
-                        break;
-
-                    default:
-                        System.out.print("#");
-                        break;
+                // Does the key exist in the map?
+                if (!map_to_check.containsKey(map_key_name)) {
+                    System.out.println("\nKey missing: " + map_key_name + " GENERATION INFO original:=" + record_to_update.generation + " updated:=" + record_to_check.generation + "\n\tExisting Keys: " + String.join(",", (Set<String>) map_to_check.keySet()));
+                    return false;
                 }
 
+                // Is there a map value?
+                String actual_value_base64 = (String) map_to_check.get(map_key_name);
+                if (actual_value_base64 == null) {
+                    System.out.println("\nNull value fetched, expected a value of length: " + expected_value.length() + " GENERATION INFO original:=" + record_to_update.generation + " updated:=" + record_to_check.generation);
+                    return false;
+                }
+
+                // Check for TERMINATOR at end
+                if (!actual_value_base64.endsWith(TERMINATOR)) {
+                    System.out.println("\nPayload corruption detected");
+                    return false;
+                }
+
+                System.out.print(".");
                 if (n % 80 == 0) System.out.println();
             }
-        } catch (Exception e) {
+        } catch (
+                Exception e) {
             e.printStackTrace();
         }
         client.close();
@@ -134,7 +132,7 @@ public class Main {
     public static String randomBytes() {
         int leftLimit = 0;
         int rightLimit = 255;
-        int targetStringLength = random.nextInt(1024);
+        int targetStringLength = 100 + random.nextInt(1024 - 100);
 
         String generatedString = random.ints(leftLimit, rightLimit + 1)
                 .limit(targetStringLength)
