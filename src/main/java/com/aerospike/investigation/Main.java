@@ -67,18 +67,43 @@ public class Main {
             int n = NUMBER_OF_OPERATIONS_PER_THREAD;
             while (n-- > 0) {
 
-                // Fetch
-                Record record_to_update = client.get(new Policy(), key, "mapbin1");
-                Map<String, String> map_to_update = (Map<String, String>) record_to_update.getMap("mapbin1");
+                Record record_to_update = null;
                 String map_key_name = "key" + random.nextInt(100);
-
                 String expected_value = randomBytes();
                 String expected_value_base64 = base64_encode(expected_value) + TERMINATOR;
 
-                // Update a key-value in map
-                map_to_update.put(map_key_name, expected_value_base64);
-                Bin bin_to_update = new Bin("mapbin1", map_to_update);
-                client.put(null, key, bin_to_update);
+                // Retry if the record that we wanted to updated didn't get updated
+                boolean retry = false;
+                do {
+                    // Fetch
+                    record_to_update = client.get(new Policy(), key, "mapbin1");
+                    Map<String, String> map_to_update = (Map<String, String>) record_to_update.getMap("mapbin1");
+
+                    // Update a key-value in map
+                    WritePolicy writePolicy = new WritePolicy();
+                    writePolicy.generationPolicy = GenerationPolicy.EXPECT_GEN_EQUAL;
+                    writePolicy.generation = record_to_update.generation;
+
+                    map_to_update.put(map_key_name, expected_value_base64);
+                    Bin bin_to_update = new Bin("mapbin1", map_to_update);
+                    try {
+                        retry = false;
+                        client.put(writePolicy, key, bin_to_update);
+                    } catch (AerospikeException ae) {
+
+                        Thread.sleep(random.nextInt(100)); // Back off at a random time, so that other threads can finish updating the same record
+
+                        // Failed? try again
+                        if (ae.getResultCode() == ResultCode.GENERATION_ERROR) {
+                            retry = true;
+                        } else {
+                            throw new Exception(String.format(
+                                    "Unexpected set return code: namespace=%s set=%s key=%s bin=%s code=%s",
+                                    key.namespace, key.setName, key.userKey, bin_to_update.name, ae.getResultCode()));
+                        }
+                    }
+                }
+                while (retry);
 
                 // Verify value is set correctly
                 Record record_to_check = client.get(null, key, "mapbin1");
