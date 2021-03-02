@@ -80,13 +80,6 @@ public class Main {
                         Map<?, ?> map_to_check = (Map<?, ?>) record_to_check.getValue("mapbin1");
                         String actual_value_base64 = (String) map_to_check.get(map_key_name);
 
-                        // Is there a value? - try again
-                        if (actual_value_base64 == null) {
-                            record_to_check = client.get(null, key, "mapbin1");
-                            map_to_check = (Map<?, ?>) record_to_check.getValue("mapbin1");
-                            actual_value_base64 = (String) map_to_check.get(map_key_name);
-                        }
-
                         // Is there a value?
                         if (actual_value_base64 == null) {
                             System.out.println("\nNull value fetched, expected a value of length: " + expected_value.length() + " GENERATION INFO original:=" + record_to_update.generation + " updated:=" + record_to_check.generation);
