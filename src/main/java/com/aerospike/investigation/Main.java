@@ -13,7 +13,7 @@ import java.util.function.BinaryOperator;
 import java.util.stream.Stream;
 
 public class Main {
-    private static int NUMBER_OF_THREADS = 5;
+    private static int NUMBER_OF_THREADS = 30;
     private static int NUMBER_OF_OPERATIONS_PER_THREAD = 1000;
     private static String TERMINATOR = "@#$%^&";
 
@@ -57,7 +57,6 @@ public class Main {
         try {
 
             Key key = new Key("test", "demo", "mapkey1");
-            client.delete(null, key);
 
             // Create Empty map
             HashMap<String, String> init_map = new HashMap<>();
@@ -129,7 +128,7 @@ public class Main {
                 }
 
                 System.out.print(".");
-                if (n % 80 == 0) System.out.println();
+                if (n % 20 == 0) System.out.println();
             }
         } catch (
                 Exception e) {
